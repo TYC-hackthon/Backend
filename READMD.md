@@ -13,7 +13,8 @@
 
 - `GET /api/health`：檢查後端狀態。
 - `GET /api/models`：回傳前端模型選單所需的 Provider 與 Model 清單。
-- `POST /api/chat`：接收 `provider`、`model`、`messages`，呼叫指定模型並回傳 assistant 訊息。
+- `GET /api/ollama/models?base_url=http://localhost:11434`：讀取 Ollama `/api/tags`，回傳已拉取的模型名稱。
+- `POST /api/chat`：接收 `provider`、`model`、`messages`，呼叫指定模型並回傳 assistant 訊息。若 provider 為 Ollama，可額外傳入 `ollama_base_url`。
 
 `POST /api/chat` payload 範例：
 
@@ -21,6 +22,7 @@
 {
   "provider": "ollama",
   "model": "llama3.1",
+  "ollama_base_url": "http://localhost:11434",
   "messages": [
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
@@ -30,7 +32,7 @@
 
 ## Provider 設定
 
-- Ollama：預設使用 `http://localhost:11434`，可用 `OLLAMA_BASE_URL` 覆蓋。
+- Ollama：預設使用 `http://localhost:11434`，可用前端傳入的 `ollama_base_url` 或環境變數 `OLLAMA_BASE_URL` 覆蓋。
 - Gemini：需設定 `GEMINI_API_KEY` 後再啟動後端。
 
 ## 開發指令
