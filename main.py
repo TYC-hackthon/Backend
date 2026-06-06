@@ -11,6 +11,12 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 
+PROVIDER_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "GitAIChat/0.1",
+}
+
+
 DEFAULT_MODELS = [
     {
         "provider": "ollama",
@@ -42,7 +48,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None 
     req = Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json", **(headers or {})},
+        headers={**PROVIDER_HEADERS, "Content-Type": "application/json", **(headers or {})},
         method="POST",
     )
 
@@ -57,7 +63,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None 
 
 
 def get_json(url: str):
-    req = Request(url, method="GET")
+    req = Request(url, headers=PROVIDER_HEADERS, method="GET")
 
     try:
         with urlopen(req, timeout=20) as res:
