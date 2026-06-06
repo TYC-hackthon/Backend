@@ -1,0 +1,58 @@
+import os
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+from .config import DATABASE_URL
+
+
+def ensure_sqlite_directory(database_url: str):
+    if not database_url.startswith("sqlite:///"):
+        return
+
+    database_path = database_url.removeprefix("sqlite:///")
+    if not database_path or database_path == ":memory:":
+        return
+
+    database_dir = os.path.dirname(database_path)
+    if database_dir:
+        os.makedirs(database_dir, exist_ok=True)
+
+
+ensure_sqlite_directory(DATABASE_URL)
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def ensure_message_node_columns(message_node_model):
+    existing_columns = {
+        column["name"]
+        for column in inspect(engine).get_columns(message_node_model.__tablename__)
+    }
+    statements = []
+    if "user_content" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN user_content TEXT")
+    if "assistant_content" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN assistant_content TEXT")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def init_database():
+    from .models import MessageNode
+
+    Base.metadata.create_all(bind=engine)
+    ensure_message_node_columns(MessageNode)

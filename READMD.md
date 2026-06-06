@@ -4,7 +4,18 @@
 
 ## 主要架構
 
-- `main.py`：Flask app 入口，包含 API route、SQLAlchemy 對話節點、模型清單、Provider 呼叫邏輯。
+- `main.py`：Flask app 入口，建立並啟動 `create_app()` 回傳的 app。
+- `app/__init__.py`：Flask app factory，集中初始化資料庫、CORS 與 blueprint 註冊。
+- `app/blueprints/health.py`：健康檢查 API。
+- `app/blueprints/providers.py`：模型清單與 Ollama 模型偵測 API。
+- `app/blueprints/conversations.py`：對話樹、節點、上下文與清空資料 API。
+- `app/blueprints/chat.py`：聊天送出 API。
+- `app/config.py`：環境變數與預設 Provider 設定。
+- `app/database.py`：SQLAlchemy engine、session 與 schema 初始化。
+- `app/models.py`：SQLAlchemy model，目前主要為 `MessageNode`。
+- `app/http.py`：統一 API 回應格式。
+- `app/services/message_nodes.py`：對話節點序列化、上下文重建、分支儲存與樹狀 payload 組裝。
+- `app/services/providers.py`：Ollama/Gemini HTTP 呼叫、模型回覆與訊息正規化。
 - `core/web.py`：既有回應格式工具。
 - `core/general.py`、`core/log.py`：既有通用工具與紀錄工具。
 - `pyproject.toml`：Python 專案與相依套件設定。
