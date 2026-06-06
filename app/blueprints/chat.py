@@ -1,5 +1,6 @@
 from flask import Blueprint, request
 
+from ..auth import AuthError, require_current_user
 from ..database import SessionLocal
 from ..http import response_fail, response_ok
 from ..services.message_nodes import (
@@ -36,6 +37,13 @@ def chat():
         return response_fail(str(exc))
 
     try:
+        with SessionLocal() as db:
+            user = require_current_user(db)
+            user_id = user.id
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
+
+    try:
         if isinstance(raw_message, str):
             user_content = raw_message.strip()
             if not user_content:
@@ -43,7 +51,7 @@ def chat():
 
             system_messages = normalize_system_prompt(payload.get("system_prompt"))
             with SessionLocal() as db:
-                context_nodes = rebuild_context_nodes(db, parent_id)
+                context_nodes = rebuild_context_nodes(db, parent_id, user_id)
                 messages = [
                     *system_messages,
                     *nodes_to_messages(context_nodes),
@@ -56,7 +64,7 @@ def chat():
                 return response_fail("Either message or messages is required.")
 
             with SessionLocal() as db:
-                ensure_parent_exists(db, parent_id)
+                ensure_parent_exists(db, parent_id, user_id)
             messages = normalize_messages(raw_messages)
             user_message = next(
                 (message for message in reversed(messages) if message["role"] == "user"),
@@ -81,6 +89,7 @@ def chat():
                 parent_id,
                 user_content,
                 reply,
+                user_id,
             )
     except ValueError as exc:
         return response_fail(str(exc), 404)

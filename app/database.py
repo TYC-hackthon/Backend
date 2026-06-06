@@ -38,13 +38,13 @@ def ensure_message_node_columns(message_node_model):
         for column in inspect(engine).get_columns(message_node_model.__tablename__)
     }
     statements = []
+    if "user_id" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN user_id INTEGER")
     if "user_content" not in existing_columns:
         statements.append("ALTER TABLE message_nodes ADD COLUMN user_content TEXT")
     if "assistant_content" not in existing_columns:
         statements.append("ALTER TABLE message_nodes ADD COLUMN assistant_content TEXT")
-
-    if not statements:
-        return
+    statements.append("CREATE INDEX IF NOT EXISTS ix_message_nodes_user_id ON message_nodes (user_id)")
 
     with engine.begin() as connection:
         for statement in statements:
@@ -52,7 +52,7 @@ def ensure_message_node_columns(message_node_model):
 
 
 def init_database():
-    from .models import MessageNode
+    from .models import MessageNode, User
 
     Base.metadata.create_all(bind=engine)
     ensure_message_node_columns(MessageNode)

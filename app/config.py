@@ -2,6 +2,16 @@ import os
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/chat.db")
+SECRET_KEY = os.getenv("SECRET_KEY", "git-ai-chat-dev-secret")
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "git_ai_chat_session")
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://127.0.0.1:3000,http://localhost:3000",
+    ).split(",")
+    if origin.strip()
+]
 
 PROVIDER_HEADERS = {
     "Accept": "application/json",

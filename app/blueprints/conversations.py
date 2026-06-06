@@ -1,6 +1,7 @@
 from flask import Blueprint
 from sqlalchemy import delete, select
 
+from ..auth import AuthError, require_current_user
 from ..database import SessionLocal
 from ..http import response_fail, response_ok
 from ..models import MessageNode
@@ -19,8 +20,11 @@ conversations_bp = Blueprint("conversations", __name__, url_prefix="/api")
 def context(node_id: int):
     try:
         with SessionLocal() as db:
-            context_nodes = rebuild_context_nodes(db, node_id)
+            user = require_current_user(db)
+            context_nodes = rebuild_context_nodes(db, node_id, user.id)
             node_payload = [node_to_dict(node) for node in context_nodes]
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
     except ValueError as exc:
         return response_fail(str(exc), 404)
     except RuntimeError as exc:
@@ -37,36 +41,60 @@ def context(node_id: int):
 
 @conversations_bp.get("/nodes")
 def nodes():
-    return response_ok(nodes_payload())
+    try:
+        with SessionLocal() as db:
+            user = require_current_user(db)
+            user_id = user.id
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
+
+    return response_ok(nodes_payload(user_id))
 
 
 @conversations_bp.delete("/nodes")
 def clear_nodes():
-    with SessionLocal() as db:
-        with db.begin():
-            result = db.execute(delete(MessageNode))
+    try:
+        with SessionLocal() as db:
+            with db.begin():
+                user = require_current_user(db)
+                result = db.execute(delete(MessageNode).where(MessageNode.user_id == user.id))
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
 
     return response_ok({"deleted": result.rowcount or 0})
 
 
 @conversations_bp.get("/tree")
 def tree():
-    return response_ok(nodes_payload())
+    try:
+        with SessionLocal() as db:
+            user = require_current_user(db)
+            user_id = user.id
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
+
+    return response_ok(nodes_payload(user_id))
 
 
 @conversations_bp.get("/nodes/<int:node_id>/children")
 def node_children(node_id: int):
-    with SessionLocal() as db:
-        if db.get(MessageNode, node_id) is None:
-            return response_fail(f"Message node {node_id} does not exist.", 404)
+    try:
+        with SessionLocal() as db:
+            user = require_current_user(db)
+            node = db.get(MessageNode, node_id)
+            if node is None or node.user_id != user.id:
+                return response_fail(f"Message node {node_id} does not exist.", 404)
 
-        children = list(
-            db.scalars(
-                select(MessageNode)
-                .where(MessageNode.parent_id == node_id)
-                .order_by(MessageNode.id)
+            children = list(
+                db.scalars(
+                    select(MessageNode)
+                    .where(MessageNode.parent_id == node_id)
+                    .where(MessageNode.user_id == user.id)
+                    .order_by(MessageNode.id)
+                )
             )
-        )
+    except AuthError as exc:
+        return response_fail(str(exc), exc.status_code)
 
     return response_ok(
         {

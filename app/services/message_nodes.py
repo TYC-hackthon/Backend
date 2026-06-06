@@ -51,7 +51,12 @@ def node_to_dict(node: MessageNode):
     }
 
 
-def rebuild_context_nodes(db, node_id: int | None):
+def ensure_node_owner(node: MessageNode, user_id: int | None):
+    if user_id is not None and node.user_id != user_id:
+        raise ValueError(f"Message node {node.id} does not exist.")
+
+
+def rebuild_context_nodes(db, node_id: int | None, user_id: int | None = None):
     if node_id is None:
         return []
 
@@ -67,6 +72,7 @@ def rebuild_context_nodes(db, node_id: int | None):
         node = db.get(MessageNode, current_id)
         if node is None:
             raise ValueError(f"Message node {current_id} does not exist.")
+        ensure_node_owner(node, user_id)
 
         nodes.append(node)
         current_id = node.parent_id
@@ -111,9 +117,14 @@ def nodes_to_context_messages(nodes: list[MessageNode]):
     return messages
 
 
-def ensure_parent_exists(db, parent_id: int | None):
-    if parent_id is not None and db.get(MessageNode, parent_id) is None:
+def ensure_parent_exists(db, parent_id: int | None, user_id: int | None = None):
+    if parent_id is None:
+        return
+
+    node = db.get(MessageNode, parent_id)
+    if node is None:
         raise ValueError(f"Message node {parent_id} does not exist.")
+    ensure_node_owner(node, user_id)
 
 
 def message_projection(node_payload: dict[str, Any], role: str, content: str):
@@ -124,12 +135,13 @@ def message_projection(node_payload: dict[str, Any], role: str, content: str):
     }
 
 
-def store_exchange(parent_id: int | None, user_content: str, assistant_content: str):
+def store_exchange(parent_id: int | None, user_content: str, assistant_content: str, user_id: int):
     with SessionLocal() as db:
         with db.begin():
-            ensure_parent_exists(db, parent_id)
+            ensure_parent_exists(db, parent_id, user_id)
 
             exchange_node = MessageNode(
+                user_id=user_id,
                 parent_id=parent_id,
                 role="exchange",
                 content=user_content,
@@ -147,9 +159,15 @@ def store_exchange(parent_id: int | None, user_content: str, assistant_content: 
             )
 
 
-def nodes_payload():
+def nodes_payload(user_id: int):
     with SessionLocal() as db:
-        nodes = list(db.scalars(select(MessageNode).order_by(MessageNode.id)))
+        nodes = list(
+            db.scalars(
+                select(MessageNode)
+                .where(MessageNode.user_id == user_id)
+                .order_by(MessageNode.id)
+            )
+        )
 
     children_by_parent: dict[int | None, list[int]] = {}
     for node in nodes:
