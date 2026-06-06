@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, delete, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 app = Flask(__name__)
@@ -53,6 +53,8 @@ class MessageNode(Base):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    user_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assistant_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -61,6 +63,28 @@ class MessageNode(Base):
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_message_node_columns():
+    existing_columns = {
+        column["name"]
+        for column in inspect(engine).get_columns(MessageNode.__tablename__)
+    }
+    statements = []
+    if "user_content" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN user_content TEXT")
+    if "assistant_content" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN assistant_content TEXT")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+ensure_message_node_columns()
 
 
 PROVIDER_HEADERS = {
@@ -122,11 +146,20 @@ def normalize_system_prompt(value: Any):
 
 
 def node_to_dict(node: MessageNode):
+    user_content = node.user_content
+    assistant_content = node.assistant_content
+    if node.role == "user" and user_content is None:
+        user_content = node.content
+    if node.role == "assistant" and assistant_content is None:
+        assistant_content = node.content
+
     return {
         "id": node.id,
         "parent_id": node.parent_id,
         "role": node.role,
         "content": node.content,
+        "user_content": user_content,
+        "assistant_content": assistant_content,
         "created_at": node.created_at.isoformat() if node.created_at else None,
     }
 
@@ -155,7 +188,40 @@ def rebuild_context_nodes(db, node_id: int | None):
 
 
 def nodes_to_messages(nodes: list[MessageNode]):
-    return [{"role": node.role, "content": node.content} for node in nodes]
+    messages = []
+    for node in nodes:
+        messages.extend(node_to_messages(node))
+    return messages
+
+
+def node_to_messages(node: MessageNode):
+    if node.role == "exchange":
+        messages = []
+        if node.user_content:
+            messages.append({"role": "user", "content": node.user_content})
+        if node.assistant_content:
+            messages.append({"role": "assistant", "content": node.assistant_content})
+        return messages
+
+    if node.role in {"user", "assistant"} and node.content:
+        return [{"role": node.role, "content": node.content}]
+
+    return []
+
+
+def nodes_to_context_messages(nodes: list[MessageNode]):
+    messages = []
+    for node in nodes:
+        for message in node_to_messages(node):
+            messages.append(
+                {
+                    **message,
+                    "node_id": node.id,
+                    "parent_id": node.parent_id,
+                    "created_at": node.created_at.isoformat() if node.created_at else None,
+                }
+            )
+    return messages
 
 
 def ensure_parent_exists(db, parent_id: int | None):
@@ -163,28 +229,35 @@ def ensure_parent_exists(db, parent_id: int | None):
         raise ValueError(f"Message node {parent_id} does not exist.")
 
 
+def message_projection(node_payload: dict[str, Any], role: str, content: str):
+    return {
+        **node_payload,
+        "role": role,
+        "content": content,
+    }
+
+
 def store_exchange(parent_id: int | None, user_content: str, assistant_content: str):
     with SessionLocal() as db:
         with db.begin():
             ensure_parent_exists(db, parent_id)
 
-            user_node = MessageNode(
+            exchange_node = MessageNode(
                 parent_id=parent_id,
-                role="user",
+                role="exchange",
                 content=user_content,
+                user_content=user_content,
+                assistant_content=assistant_content,
             )
-            db.add(user_node)
+            db.add(exchange_node)
             db.flush()
 
-            assistant_node = MessageNode(
-                parent_id=user_node.id,
-                role="assistant",
-                content=assistant_content,
+            node_payload = node_to_dict(exchange_node)
+            return (
+                message_projection(node_payload, "user", user_content),
+                message_projection(node_payload, "assistant", assistant_content),
+                node_payload,
             )
-            db.add(assistant_node)
-            db.flush()
-
-            return node_to_dict(user_node), node_to_dict(assistant_node)
 
 
 def provider_reply(
@@ -337,10 +410,7 @@ def context(node_id: int):
         {
             "node_id": node_id,
             "nodes": node_payload,
-            "messages": [
-                {"role": node["role"], "content": node["content"]}
-                for node in node_payload
-            ],
+            "messages": nodes_to_context_messages(context_nodes),
         }
     )
 
@@ -368,6 +438,15 @@ def nodes_payload():
 @app.get("/api/nodes")
 def nodes():
     return response_ok(nodes_payload())
+
+
+@app.delete("/api/nodes")
+def clear_nodes():
+    with SessionLocal() as db:
+        with db.begin():
+            result = db.execute(delete(MessageNode))
+
+    return response_ok({"deleted": result.rowcount or 0})
 
 
 @app.get("/api/tree")
@@ -456,20 +535,23 @@ def chat():
     try:
         user_node = None
         assistant_node = None
+        exchange_node = None
         if user_content:
-            user_node, assistant_node = store_exchange(parent_id, user_content, reply)
+            user_node, assistant_node, exchange_node = store_exchange(parent_id, user_content, reply)
     except ValueError as exc:
         return response_fail(str(exc), 404)
 
+    current_node_id = exchange_node["id"] if exchange_node else None
     return response_ok(
         {
             "role": "assistant",
             "content": reply,
             "user": user_node,
             "assistant": assistant_node,
-            "node": assistant_node,
-            "current_node_id": assistant_node["id"] if assistant_node else None,
-            "currentNodeId": assistant_node["id"] if assistant_node else None,
+            "exchange": exchange_node,
+            "node": exchange_node,
+            "current_node_id": current_node_id,
+            "currentNodeId": current_node_id,
         }
     )
 

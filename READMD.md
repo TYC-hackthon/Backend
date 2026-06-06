@@ -16,9 +16,10 @@
 - `GET /api/ollama/models?base_url=http://localhost:11434`：讀取 Ollama `/api/tags`，回傳已拉取的模型名稱。
 - `GET /api/context/<node_id>`：回傳指定節點往根節點追溯後的完整線性上下文。
 - `GET /api/nodes`：回傳所有訊息節點、root 節點，以及每個節點的 children id。
+- `DELETE /api/nodes`：清空所有訊息節點，回傳刪除筆數。
 - `GET /api/tree`：同 `GET /api/nodes`，供前端樹狀視覺化使用。
 - `GET /api/nodes/<node_id>/children`：回傳指定節點的直接 children。
-- `POST /api/chat`：接收 `provider`、`model`、`message`、`parent_id`，由後端重建上下文、呼叫指定模型，並依序儲存 user 與 assistant 節點。若 provider 為 Ollama，可額外傳入 `ollama_base_url`。
+- `POST /api/chat`：接收 `provider`、`model`、`message`、`parent_id`，由後端重建上下文、呼叫指定模型，並將 user 訊息與 assistant 回覆儲存為同一個 exchange 節點。若 provider 為 Ollama，可額外傳入 `ollama_base_url`。
 
 `POST /api/chat` payload 範例：
 
@@ -33,9 +34,9 @@
 }
 ```
 
-`parent_id` 可為 `null`，代表從新的 root 對話開始。回應中的 `current_node_id` / `currentNodeId` 是 assistant 節點 id，前端下一次送訊息時應作為新的 `parent_id`。
+`parent_id` 可為 `null`，代表從新的 root 對話開始。回應中的 `current_node_id` / `currentNodeId` 是 exchange 節點 id，前端下一次送訊息時應作為新的 `parent_id`。
 
-為了相容舊前端，`POST /api/chat` 仍可接收 `messages` 陣列；此模式會直接使用前端傳入的上下文呼叫模型，並儲存最後一則 user 訊息與 assistant 回覆。
+為了相容舊前端，`POST /api/chat` 仍可接收 `messages` 陣列；此模式會直接使用前端傳入的上下文呼叫模型，並將最後一則 user 訊息與 assistant 回覆儲存在同一個 exchange 節點。
 
 ## Provider 設定
 
@@ -46,7 +47,8 @@
 
 - 預設使用 SQLite：`data/chat.db`。
 - 可用 `DATABASE_URL` 覆蓋，例如 `sqlite:///data/chat.db`。
-- `MessageNode` 欄位包含 `id`、`parent_id`、`role`、`content`、`created_at`。
+- `MessageNode` 欄位包含 `id`、`parent_id`、`role`、`content`、`user_content`、`assistant_content`、`created_at`。
+- 新對話節點使用 `role = "exchange"`，同一筆 node 同時保存 `user_content` 與 `assistant_content`。
 
 ## 開發指令
 
