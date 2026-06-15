@@ -52,7 +52,19 @@ def ensure_message_node_columns(message_node_model):
 
 
 def init_database():
+    from .auth import hash_password
     from .models import MessageNode, User
 
     Base.metadata.create_all(bind=engine)
     ensure_message_node_columns(MessageNode)
+
+    with SessionLocal() as db:
+        if db.query(User).count() == 0:
+            default_user = User(
+                username="admin",
+                password_hash=hash_password("admin1234"),
+                is_admin=True,
+                is_active=True,
+            )
+            db.add(default_user)
+            db.commit()

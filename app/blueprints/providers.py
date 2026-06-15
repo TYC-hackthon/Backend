@@ -4,7 +4,11 @@ from ..auth import AuthError, require_current_user
 from ..config import get_default_models
 from ..database import SessionLocal
 from ..http import response_fail, response_ok
-from ..services.providers import get_json, normalize_ollama_base_url
+from ..services.providers import (
+    get_gemini_models,
+    get_json,
+    normalize_ollama_base_url,
+)
 
 
 providers_bp = Blueprint("providers", __name__, url_prefix="/api")
@@ -18,7 +22,16 @@ def models():
     except AuthError as exc:
         return response_fail(str(exc), exc.status_code)
 
-    return response_ok(get_default_models())
+    providers = get_default_models()
+    gemini_models = get_gemini_models()
+
+    if gemini_models:
+        for provider in providers:
+            if provider["provider"] == "gemini":
+                provider["models"] = gemini_models
+                provider["configured"] = True
+
+    return response_ok(providers)
 
 
 @providers_bp.get("/ollama/models")

@@ -80,6 +80,26 @@ def normalize_messages(messages: list[dict[str, str]]):
     return normalized
 
 
+def get_gemini_models():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return []
+
+    try:
+        data = get_json(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        )
+        models = []
+        for item in data.get("models", []):
+            if "generateContent" in item.get("supportedGenerationMethods", []):
+                name = item.get("name", "")
+                if name.startswith("models/"):
+                    models.append(name.replace("models/", "", 1))
+        return sorted(set(models))
+    except Exception:
+        return []
+
+
 def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str | None = None):
     selected_base_url = normalize_ollama_base_url(base_url)
 
