@@ -43,6 +43,8 @@ def node_to_dict(node: MessageNode):
     return {
         "id": node.id,
         "parent_id": node.parent_id,
+        "merge_parent_a_id": getattr(node, "merge_parent_a_id", None),
+        "merge_parent_b_id": getattr(node, "merge_parent_b_id", None),
         "role": node.role,
         "content": node.content,
         "user_content": user_content,
@@ -57,27 +59,40 @@ def ensure_node_owner(node: MessageNode, user_id: int | None):
 
 
 def rebuild_context_nodes(db, node_id: int | None, user_id: int | None = None):
-    if node_id is None:
-        return []
-
-    nodes = []
     seen_ids = set()
-    current_id = node_id
 
-    while current_id is not None:
-        if current_id in seen_ids:
-            raise RuntimeError("Message node cycle detected.")
-        seen_ids.add(current_id)
+    def collect(curr_id):
+        if curr_id is None:
+            return []
 
-        node = db.get(MessageNode, current_id)
-        if node is None:
-            raise ValueError(f"Message node {current_id} does not exist.")
-        ensure_node_owner(node, user_id)
+        curr_chain = []
+        curr = curr_id
+        while curr is not None:
+            if curr in seen_ids:
+                raise RuntimeError("Message node cycle detected.")
+            seen_ids.add(curr)
 
-        nodes.append(node)
-        current_id = node.parent_id
+            node = db.get(MessageNode, curr)
+            if node is None:
+                raise ValueError(f"Message node {curr} does not exist.")
+            ensure_node_owner(node, user_id)
 
-    return list(reversed(nodes))
+            curr_chain.append(node)
+            curr = node.parent_id
+
+        curr_chain.reverse()
+
+        res = []
+        for node in curr_chain:
+            if node.role == "merge":
+                if getattr(node, "merge_parent_a_id", None) is not None:
+                    res.extend(collect(node.merge_parent_a_id))
+                if getattr(node, "merge_parent_b_id", None) is not None:
+                    res.extend(collect(node.merge_parent_b_id))
+            res.append(node)
+        return res
+
+    return collect(node_id)
 
 
 def nodes_to_messages(nodes: list[MessageNode]):
@@ -95,6 +110,12 @@ def node_to_messages(node: MessageNode):
         if node.assistant_content:
             messages.append({"role": "assistant", "content": node.assistant_content})
         return messages
+
+    if node.role == "merge":
+        return [
+            {"role": "user", "content": "I'm now bringing in context from a separate conversation session."},
+            {"role": "assistant", "content": "Understood. I now have context from both sessions and will incorporate information from both."}
+        ]
 
     if node.role in {"user", "assistant"} and node.content:
         return [{"role": node.role, "content": node.content}]
@@ -185,57 +206,28 @@ def nodes_payload(user_id: int):
     }
 
 
-def merge_branches(node_a_id: int | None, node_b_id: int | None, user_id: int):
+def create_merge_node(node_a_id: int, node_b_id: int, user_id: int):
     with SessionLocal() as db:
         with db.begin():
-            chain_a = rebuild_context_nodes(db, node_a_id, user_id)
-            chain_b = rebuild_context_nodes(db, node_b_id, user_id)
+            node_a = db.get(MessageNode, node_a_id)
+            if node_a is None:
+                raise ValueError(f"Message node {node_a_id} does not exist.")
+            ensure_node_owner(node_a, user_id)
 
-            all_copied_nodes = []
+            node_b = db.get(MessageNode, node_b_id)
+            if node_b is None:
+                raise ValueError(f"Message node {node_b_id} does not exist.")
+            ensure_node_owner(node_b, user_id)
 
-            last_parent_id = None
-            for node in chain_a:
-                new_node = MessageNode(
-                    user_id=node.user_id,
-                    role=node.role,
-                    content=node.content,
-                    user_content=node.user_content,
-                    assistant_content=node.assistant_content,
-                    parent_id=last_parent_id,
-                )
-                db.add(new_node)
-                db.flush()
-                all_copied_nodes.append(new_node)
-                last_parent_id = new_node.id
-
-            separator_node = MessageNode(
+            merge_node = MessageNode(
                 user_id=user_id,
-                parent_id=last_parent_id,
-                role="exchange",
-                content="I'm now bringing in context from a separate conversation session.",
-                user_content="I'm now bringing in context from a separate conversation session.",
-                assistant_content="Understood. I now have context from both sessions and will incorporate information from both.",
+                parent_id=None,
+                merge_parent_a_id=node_a_id,
+                merge_parent_b_id=node_b_id,
+                role="merge",
+                content=f"Merged from Node #{node_a_id} and Node #{node_b_id}",
             )
-            db.add(separator_node)
+            db.add(merge_node)
             db.flush()
-            all_copied_nodes.append(separator_node)
-            last_parent_id = separator_node.id
 
-            for node in chain_b:
-                new_node = MessageNode(
-                    user_id=node.user_id,
-                    role=node.role,
-                    content=node.content,
-                    user_content=node.user_content,
-                    assistant_content=node.assistant_content,
-                    parent_id=last_parent_id,
-                )
-                db.add(new_node)
-                db.flush()
-                all_copied_nodes.append(new_node)
-                last_parent_id = new_node.id
-
-            return (
-                [node_to_dict(n) for n in all_copied_nodes],
-                last_parent_id,
-            )
+            return node_to_dict(merge_node)

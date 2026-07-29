@@ -44,6 +44,15 @@ def ensure_message_node_columns(message_node_model):
         statements.append("ALTER TABLE message_nodes ADD COLUMN user_content TEXT")
     if "assistant_content" not in existing_columns:
         statements.append("ALTER TABLE message_nodes ADD COLUMN assistant_content TEXT")
+    if "secondary_parent_id" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN secondary_parent_id INTEGER")
+    if "merge_parent_a_id" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN merge_parent_a_id INTEGER")
+    if "merge_parent_b_id" not in existing_columns:
+        statements.append("ALTER TABLE message_nodes ADD COLUMN merge_parent_b_id INTEGER")
+    statements.append("CREATE INDEX IF NOT EXISTS ix_message_nodes_secondary_parent_id ON message_nodes (secondary_parent_id)")
+    statements.append("CREATE INDEX IF NOT EXISTS ix_message_nodes_merge_parent_a_id ON message_nodes (merge_parent_a_id)")
+    statements.append("CREATE INDEX IF NOT EXISTS ix_message_nodes_merge_parent_b_id ON message_nodes (merge_parent_b_id)")
     statements.append("CREATE INDEX IF NOT EXISTS ix_message_nodes_user_id ON message_nodes (user_id)")
 
     with engine.begin() as connection:

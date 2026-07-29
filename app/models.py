@@ -35,6 +35,21 @@ class MessageNode(Base):
         nullable=True,
         index=True,
     )
+    secondary_parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("message_nodes.id"),
+        nullable=True,
+        index=True,
+    )
+    merge_parent_a_id: Mapped[int | None] = mapped_column(
+        ForeignKey("message_nodes.id"),
+        nullable=True,
+        index=True,
+    )
+    merge_parent_b_id: Mapped[int | None] = mapped_column(
+        ForeignKey("message_nodes.id"),
+        nullable=True,
+        index=True,
+    )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     user_content: Mapped[str | None] = mapped_column(Text, nullable=True)
