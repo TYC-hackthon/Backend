@@ -183,3 +183,59 @@ def nodes_payload(user_id: int):
         "nodes": payload,
         "roots": children_by_parent.get(None, []),
     }
+
+
+def merge_branches(node_a_id: int | None, node_b_id: int | None, user_id: int):
+    with SessionLocal() as db:
+        with db.begin():
+            chain_a = rebuild_context_nodes(db, node_a_id, user_id)
+            chain_b = rebuild_context_nodes(db, node_b_id, user_id)
+
+            all_copied_nodes = []
+
+            last_parent_id = None
+            for node in chain_a:
+                new_node = MessageNode(
+                    user_id=node.user_id,
+                    role=node.role,
+                    content=node.content,
+                    user_content=node.user_content,
+                    assistant_content=node.assistant_content,
+                    parent_id=last_parent_id,
+                )
+                db.add(new_node)
+                db.flush()
+                all_copied_nodes.append(new_node)
+                last_parent_id = new_node.id
+
+            separator_node = MessageNode(
+                user_id=user_id,
+                parent_id=last_parent_id,
+                role="exchange",
+                content="I'm now bringing in context from a separate conversation session.",
+                user_content="I'm now bringing in context from a separate conversation session.",
+                assistant_content="Understood. I now have context from both sessions and will incorporate information from both.",
+            )
+            db.add(separator_node)
+            db.flush()
+            all_copied_nodes.append(separator_node)
+            last_parent_id = separator_node.id
+
+            for node in chain_b:
+                new_node = MessageNode(
+                    user_id=node.user_id,
+                    role=node.role,
+                    content=node.content,
+                    user_content=node.user_content,
+                    assistant_content=node.assistant_content,
+                    parent_id=last_parent_id,
+                )
+                db.add(new_node)
+                db.flush()
+                all_copied_nodes.append(new_node)
+                last_parent_id = new_node.id
+
+            return (
+                [node_to_dict(n) for n in all_copied_nodes],
+                last_parent_id,
+            )
