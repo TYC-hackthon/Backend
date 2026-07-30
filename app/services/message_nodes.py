@@ -59,18 +59,19 @@ def ensure_node_owner(node: MessageNode, user_id: int | None):
 
 
 def rebuild_context_nodes(db, node_id: int | None, user_id: int | None = None):
-    seen_ids = set()
+    emitted_ids = set()
 
-    def collect(curr_id):
+    def collect(curr_id, path_ids):
         if curr_id is None:
             return []
 
         curr_chain = []
+        chain_ids = set()
         curr = curr_id
         while curr is not None:
-            if curr in seen_ids:
+            if curr in path_ids or curr in chain_ids:
                 raise RuntimeError("Message node cycle detected.")
-            seen_ids.add(curr)
+            chain_ids.add(curr)
 
             node = db.get(MessageNode, curr)
             if node is None:
@@ -83,16 +84,22 @@ def rebuild_context_nodes(db, node_id: int | None, user_id: int | None = None):
         curr_chain.reverse()
 
         res = []
-        for node in curr_chain:
+        for index, node in enumerate(curr_chain):
             if node.role == "merge":
+                # Only the nodes between the merge node and the entry point are on
+                # the active path; anything else that shows up again is a shared
+                # ancestor of the two branches, not a cycle.
+                merge_path = path_ids | {item.id for item in curr_chain[index:]}
                 if getattr(node, "merge_parent_a_id", None) is not None:
-                    res.extend(collect(node.merge_parent_a_id))
+                    res.extend(collect(node.merge_parent_a_id, merge_path))
                 if getattr(node, "merge_parent_b_id", None) is not None:
-                    res.extend(collect(node.merge_parent_b_id))
-            res.append(node)
+                    res.extend(collect(node.merge_parent_b_id, merge_path))
+            if node.id not in emitted_ids:
+                emitted_ids.add(node.id)
+                res.append(node)
         return res
 
-    return collect(node_id)
+    return collect(node_id, frozenset())
 
 
 def nodes_to_messages(nodes: list[MessageNode]):
