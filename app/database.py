@@ -62,7 +62,7 @@ def ensure_message_node_columns(message_node_model):
 
 def init_database():
     from .auth import hash_password
-    from .models import MessageNode, User
+    from .models import BranchInfo, MessageNode, User
 
     Base.metadata.create_all(bind=engine)
     ensure_message_node_columns(MessageNode)

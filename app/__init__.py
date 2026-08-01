@@ -7,6 +7,7 @@ from .blueprints.chat import chat_bp
 from .blueprints.conversations import conversations_bp
 from .blueprints.health import health_bp
 from .blueprints.providers import providers_bp
+from .blueprints.branches import branches_bp
 from .config import CORS_ORIGINS, SECRET_KEY, SESSION_COOKIE_NAME
 from .database import init_database
 
@@ -33,5 +34,6 @@ def create_app():
     flask_app.register_blueprint(providers_bp)
     flask_app.register_blueprint(conversations_bp)
     flask_app.register_blueprint(chat_bp)
+    flask_app.register_blueprint(branches_bp)
 
     return flask_app

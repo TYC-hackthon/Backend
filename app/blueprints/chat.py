@@ -91,6 +91,8 @@ def chat():
                 user_content,
                 reply,
                 user_id,
+                ollama_base_url=ollama_base_url,
+                metadata_model=model.strip() if model else None
             )
     except ValueError as exc:
         return response_fail(str(exc), 404)

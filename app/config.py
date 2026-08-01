@@ -11,6 +11,13 @@ _cors_origins = [
 ]
 CORS_ORIGINS = "*" if "*" in _cors_origins else _cors_origins
 
+# Embedding configuration
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+EMBEDDING_MAX_TOKENS = int(os.getenv("EMBEDDING_MAX_TOKENS", "6000"))
+
+# Metadata LLM configuration
+METADATA_MODEL = os.getenv("METADATA_MODEL", "llama3")
+
 PROVIDER_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "GitAIChat/0.1",

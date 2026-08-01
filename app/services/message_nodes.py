@@ -163,7 +163,7 @@ def message_projection(node_payload: dict[str, Any], role: str, content: str):
     }
 
 
-def store_exchange(parent_id: int | None, user_content: str, assistant_content: str, user_id: int):
+def store_exchange(parent_id: int | None, user_content: str, assistant_content: str, user_id: int, ollama_base_url: str | None = None, metadata_model: str | None = None):
     with SessionLocal() as db:
         with db.begin():
             ensure_parent_exists(db, parent_id, user_id)
@@ -180,7 +180,20 @@ def store_exchange(parent_id: int | None, user_content: str, assistant_content: 
             db.flush()
 
             node_payload = node_to_dict(exchange_node)
-            return (
+            
+    try:
+        import threading
+        from .branch_info import upsert_branch_info
+        def _run_upsert():
+            try:
+                upsert_branch_info(node_payload["id"], user_id, ollama_base_url, metadata_model)
+            except Exception:
+                pass
+        threading.Thread(target=_run_upsert, daemon=True).start()
+    except Exception:
+        pass
+
+    return (
                 message_projection(node_payload, "user", user_content),
                 message_projection(node_payload, "assistant", assistant_content),
                 node_payload,
@@ -237,4 +250,18 @@ def create_merge_node(node_a_id: int, node_b_id: int, user_id: int):
             db.add(merge_node)
             db.flush()
 
-            return node_to_dict(merge_node)
+            result = node_to_dict(merge_node)
+
+    try:
+        import threading
+        from .branch_info import upsert_branch_info
+        def _run_upsert():
+            try:
+                upsert_branch_info(result["id"], user_id)
+            except Exception:
+                pass
+        threading.Thread(target=_run_upsert, daemon=True).start()
+    except Exception:
+        pass
+
+    return result
