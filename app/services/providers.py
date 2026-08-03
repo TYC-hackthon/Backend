@@ -58,7 +58,7 @@ def normalize_ollama_base_url(base_url: str | None = None):
     selected_base_url = (
         base_url.strip()
         if isinstance(base_url, str) and base_url.strip()
-        else os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        else os.getenv("OLLAMA_BASE_URL", "https://sheep.ysh.xx.kg")
     )
     selected_base_url = selected_base_url.rstrip("/")
 

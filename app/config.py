@@ -16,7 +16,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 EMBEDDING_MAX_TOKENS = int(os.getenv("EMBEDDING_MAX_TOKENS", "6000"))
 
 # Metadata LLM configuration
-METADATA_MODEL = os.getenv("METADATA_MODEL", "llama3")
+METADATA_MODEL = os.getenv("METADATA_MODEL", "gemma3:4b")
 
 PROVIDER_HEADERS = {
     "Accept": "application/json",
@@ -29,9 +29,9 @@ def get_default_models():
         {
             "provider": "ollama",
             "label": "Ollama",
-            "models": ["llama3.1", "llama3", "mistral", "gemma2"],
+            "models": ["gemma3:4b", "llama3.1", "mistral", "gemma2"],
             "configured": True,
-            "hint": "Uses OLLAMA_BASE_URL, defaulting to http://localhost:11434.",
+            "hint": "Uses OLLAMA_BASE_URL, defaulting to https://sheep.ysh.xx.kg.",
         },
         {
             "provider": "gemini",

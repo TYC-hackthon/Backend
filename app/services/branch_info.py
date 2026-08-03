@@ -4,7 +4,7 @@ from ..database import SessionLocal
 from ..models import BranchInfo, MessageNode
 from ..config import EMBEDDING_MODEL, METADATA_MODEL
 from .message_nodes import rebuild_context_nodes
-from .providers import normalize_ollama_base_url, post_json
+from .providers import normalize_ollama_base_url, post_json, provider_reply
 
 
 def embed_with_ollama(
@@ -27,35 +27,36 @@ def embed_with_ollama(
     return embeddings[0]
 
 
-def generate_metadata_with_ollama(
+def generate_metadata(
+    provider: str,
     text: str,
-    model: str = "llama3",
+    model: str,
     base_url: str | None = None,
 ) -> dict:
-    """Generate summary and tags using Ollama."""
-    selected_base_url = normalize_ollama_base_url(base_url)
+    """Generate summary and tags using the chosen provider."""
     prompt = (
         "Analyze the following conversation and extract a short summary (max 10 words) "
         "and a list of 2-4 tags. Return ONLY a valid JSON object in the exact format: "
-        '{"summary": "...", "tags": ["tag1", "tag2"]}\n\n'
-        f"Conversation:\n{text}"
+        '{"summary": "...", "tags": ["tag1", "tag2"]}'
     )
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": f"Conversation:\n{text}"}
+    ]
     try:
-        print(f"[DEBUG] Requesting Ollama generate with model {model} on {selected_base_url}")
-        data = post_json(
-            f"{selected_base_url}/api/generate",
-            {
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json"
-            },
-        )
-        response_text = data.get("response", "{}")
-        print(f"[DEBUG] Ollama response: {response_text}")
-        return json.loads(response_text)
+        print(f"[DEBUG] Requesting metadata generation with provider {provider} model {model}")
+        response_text = provider_reply(provider, model, messages, base_url)
+        print(f"[DEBUG] Provider response: {response_text}")
+        clean_text = response_text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        if clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        return json.loads(clean_text.strip())
     except Exception as e:
-        print(f"[DEBUG] Ollama generation failed: {e}")
+        print(f"[DEBUG] Metadata generation failed: {e}")
         return {}
 
 
@@ -75,7 +76,7 @@ def build_embedding_text(context_nodes: list) -> str:
     return "\n".join(parts)
 
 
-def upsert_branch_info(node_id: int, user_id: int, ollama_base_url: str | None = None, metadata_model: str | None = None):
+def upsert_branch_info(node_id: int, user_id: int, provider: str = "ollama", metadata_model: str | None = None, ollama_base_url: str | None = None):
     """Create or update BranchInfo for a leaf node."""
     if not metadata_model:
         metadata_model = METADATA_MODEL
@@ -99,7 +100,7 @@ def upsert_branch_info(node_id: int, user_id: int, ollama_base_url: str | None =
         print(f"[DEBUG] Embedding failed: {e}")
         vector = None
 
-    metadata = generate_metadata_with_ollama(embedding_text, model=metadata_model, base_url=ollama_base_url)
+    metadata = generate_metadata(provider, embedding_text, model=metadata_model, base_url=ollama_base_url)
     summary = metadata.get("summary")
     tags = metadata.get("tags")
     tags_json = json.dumps(tags) if isinstance(tags, list) else None
