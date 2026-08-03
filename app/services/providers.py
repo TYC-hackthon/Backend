@@ -18,7 +18,7 @@ def provider_reply(
     return chat_with_gemini(model, messages)
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None = None):
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None = None, timeout: int = 180):
     body = json.dumps(payload).encode("utf-8")
     req = Request(
         url,
@@ -32,7 +32,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None 
     )
 
     try:
-        with urlopen(req, timeout=60) as res:
+        with urlopen(req, timeout=timeout) as res:
             return json.loads(res.read().decode("utf-8"))
     except HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
