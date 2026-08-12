@@ -78,7 +78,10 @@ def chat():
     except RuntimeError as exc:
         return response_fail(str(exc), 502)
 
-    if not reply:
+    reply_text = reply.get("content", "") if isinstance(reply, dict) else reply
+    tokens_used = reply.get("total_tokens", 0) if isinstance(reply, dict) else 0
+
+    if not reply_text:
         return response_fail("Provider returned an empty reply.", 502)
 
     try:
@@ -89,7 +92,7 @@ def chat():
             user_node, assistant_node, exchange_node = store_exchange(
                 parent_id,
                 user_content,
-                reply,
+                reply_text,
                 user_id,
                 provider=provider,
                 metadata_model=model.strip() if model else None,
@@ -102,13 +105,15 @@ def chat():
     return response_ok(
         {
             "role": "assistant",
-            "content": reply,
+            "content": reply_text,
             "user": user_node,
             "assistant": assistant_node,
             "exchange": exchange_node,
             "node": exchange_node,
             "current_node_id": current_node_id,
             "currentNodeId": current_node_id,
+            "token_used": tokens_used,
+            "tokens_used": tokens_used,
         }
     )
 

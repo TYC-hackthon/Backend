@@ -102,16 +102,56 @@ def get_gemini_models():
 
 def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str | None = None):
     selected_base_url = normalize_ollama_base_url(base_url)
-
-    data = post_json(
-        f"{selected_base_url}/api/chat",
-        {
-            "model": model,
-            "messages": messages,
-            "stream": False,
+    url = f"{selected_base_url}/api/chat"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = Request(
+        url,
+        data=body,
+        headers={
+            **PROVIDER_HEADERS,
+            "Content-Type": "application/json",
         },
+        method="POST",
     )
-    return data.get("message", {}).get("content", "").strip()
+
+    content_parts = []
+    prompt_tokens = 0
+    eval_tokens = 0
+
+    try:
+        with urlopen(req, timeout=300) as res:
+            for line in res:
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode("utf-8"))
+                    msg = chunk.get("message", {})
+                    if "content" in msg and msg["content"]:
+                        content_parts.append(msg["content"])
+                    if chunk.get("done"):
+                        prompt_tokens = chunk.get("prompt_eval_count", 0)
+                        eval_tokens = chunk.get("eval_count", 0)
+                except Exception:
+                    continue
+    except HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Provider returned HTTP {exc.code}: {details}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Provider is unreachable: {exc.reason}") from exc
+
+    content = "".join(content_parts).strip()
+    total_tokens = prompt_tokens + eval_tokens
+    return {
+        "content": content,
+        "prompt_eval_count": prompt_tokens,
+        "eval_count": eval_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 def chat_with_gemini(model: str, messages: list[dict[str, str]]):
