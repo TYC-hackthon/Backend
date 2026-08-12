@@ -27,6 +27,8 @@ def chat():
     raw_message = payload.get("message")
     ollama_base_url = payload.get("ollama_base_url")
 
+    keep_alive = payload.get("keep_alive")
+
     if provider not in {"ollama", "gemini"}:
         return response_fail("Unsupported provider.")
     if not isinstance(model, str) or not model.strip():
@@ -59,7 +61,7 @@ def chat():
                     {"role": "user", "content": user_content},
                 ]
             messages = normalize_messages(messages)
-            reply = provider_reply(provider, model.strip(), messages, ollama_base_url)
+            reply = provider_reply(provider, model.strip(), messages, ollama_base_url, keep_alive=keep_alive)
         else:
             if not isinstance(raw_messages, list) or len(raw_messages) == 0:
                 return response_fail("Either message or messages is required.")
@@ -72,7 +74,7 @@ def chat():
                 None,
             )
             user_content = user_message["content"] if user_message else ""
-            reply = provider_reply(provider, model.strip(), messages, ollama_base_url)
+            reply = provider_reply(provider, model.strip(), messages, ollama_base_url, keep_alive=keep_alive)
     except ValueError as exc:
         return response_fail(str(exc))
     except RuntimeError as exc:
@@ -80,6 +82,10 @@ def chat():
 
     reply_text = reply.get("content", "") if isinstance(reply, dict) else reply
     tokens_used = reply.get("total_tokens", 0) if isinstance(reply, dict) else 0
+    total_duration = reply.get("total_duration", 0.0) if isinstance(reply, dict) else 0.0
+    load_duration = reply.get("load_duration", 0.0) if isinstance(reply, dict) else 0.0
+    prompt_eval_duration = reply.get("prompt_eval_duration", 0.0) if isinstance(reply, dict) else 0.0
+    eval_duration = reply.get("eval_duration", 0.0) if isinstance(reply, dict) else 0.0
 
     if not reply_text:
         return response_fail("Provider returned an empty reply.", 502)
@@ -114,6 +120,10 @@ def chat():
             "currentNodeId": current_node_id,
             "token_used": tokens_used,
             "tokens_used": tokens_used,
+            "total_duration": total_duration,
+            "load_duration": load_duration,
+            "prompt_eval_duration": prompt_eval_duration,
+            "eval_duration": eval_duration,
         }
     )
 

@@ -12,9 +12,10 @@ def provider_reply(
     model: str,
     messages: list[dict[str, str]],
     ollama_base_url: str | None = None,
+    keep_alive: str | int | None = None,
 ):
     if provider == "ollama":
-        return chat_with_ollama(model, messages, ollama_base_url)
+        return chat_with_ollama(model, messages, ollama_base_url, keep_alive=keep_alive)
     return chat_with_gemini(model, messages)
 
 
@@ -100,7 +101,12 @@ def get_gemini_models():
         return []
 
 
-def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str | None = None):
+def chat_with_ollama(
+    model: str,
+    messages: list[dict[str, str]],
+    base_url: str | None = None,
+    keep_alive: str | int | None = None,
+):
     selected_base_url = normalize_ollama_base_url(base_url)
     url = f"{selected_base_url}/api/chat"
     payload = {
@@ -108,6 +114,9 @@ def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str |
         "messages": messages,
         "stream": True,
     }
+    if keep_alive is not None:
+        payload["keep_alive"] = keep_alive
+
     body = json.dumps(payload).encode("utf-8")
     req = Request(
         url,
@@ -122,6 +131,10 @@ def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str |
     content_parts = []
     prompt_tokens = 0
     eval_tokens = 0
+    total_duration = 0.0
+    load_duration = 0.0
+    prompt_eval_duration = 0.0
+    eval_duration = 0.0
 
     try:
         with urlopen(req, timeout=300) as res:
@@ -136,6 +149,10 @@ def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str |
                     if chunk.get("done"):
                         prompt_tokens = chunk.get("prompt_eval_count", 0)
                         eval_tokens = chunk.get("eval_count", 0)
+                        total_duration = round(chunk.get("total_duration", 0) / 1e9, 4)
+                        load_duration = round(chunk.get("load_duration", 0) / 1e9, 4)
+                        prompt_eval_duration = round(chunk.get("prompt_eval_duration", 0) / 1e9, 4)
+                        eval_duration = round(chunk.get("eval_duration", 0) / 1e9, 4)
                 except Exception:
                     continue
     except HTTPError as exc:
@@ -151,6 +168,10 @@ def chat_with_ollama(model: str, messages: list[dict[str, str]], base_url: str |
         "prompt_eval_count": prompt_tokens,
         "eval_count": eval_tokens,
         "total_tokens": total_tokens,
+        "total_duration": total_duration,
+        "load_duration": load_duration,
+        "prompt_eval_duration": prompt_eval_duration,
+        "eval_duration": eval_duration,
     }
 
 
