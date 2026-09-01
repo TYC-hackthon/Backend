@@ -134,6 +134,7 @@ def merge():
     provider = payload.get("provider", "ollama")
     model = payload.get("model", "")
     ollama_base_url = payload.get("ollama_base_url")
+    strategy = payload.get("strategy", "synthesize")
 
     try:
         node_a_id = normalize_parent_id(payload.get("node_a_id"))
@@ -155,7 +156,15 @@ def merge():
         return response_fail(str(exc), exc.status_code)
 
     try:
-        node = create_merge_node(node_a_id, node_b_id, user_id, provider=provider, model=model.strip() if model else None, ollama_base_url=ollama_base_url)
+        node = create_merge_node(
+            node_a_id,
+            node_b_id,
+            user_id,
+            provider=provider,
+            model=model.strip() if model else None,
+            ollama_base_url=ollama_base_url,
+            strategy=strategy,
+        )
     except ValueError as exc:
         return response_fail(str(exc))
 

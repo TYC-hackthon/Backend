@@ -12,7 +12,7 @@ from ..auth import (
 )
 from ..database import SessionLocal
 from ..http import response_fail, response_ok
-from ..models import MessageNode, User
+from ..models import BranchInfo, MessageNode, User
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -128,6 +128,7 @@ def delete_user_nodes(user_id: int):
                 if user is None:
                     return response_fail(f"User {user_id} does not exist.", 404)
 
+                db.execute(delete(BranchInfo).where(BranchInfo.user_id == user.id))
                 result = db.execute(delete(MessageNode).where(MessageNode.user_id == user.id))
     except AuthError as exc:
         return response_fail(str(exc), exc.status_code)

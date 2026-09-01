@@ -119,9 +119,11 @@ def node_to_messages(node: MessageNode):
         return messages
 
     if node.role == "merge":
+        user_msg = node.user_content or "I'm now bringing in context from a separate conversation session."
+        asst_msg = node.assistant_content or "Understood. I now have context from both sessions and will incorporate information from both."
         return [
-            {"role": "user", "content": "I'm now bringing in context from a separate conversation session."},
-            {"role": "assistant", "content": "Understood. I now have context from both sessions and will incorporate information from both."}
+            {"role": "user", "content": user_msg},
+            {"role": "assistant", "content": asst_msg},
         ]
 
     if node.role in {"user", "assistant"} and node.content:
@@ -226,7 +228,109 @@ def nodes_payload(user_id: int):
     }
 
 
-def create_merge_node(node_a_id: int, node_b_id: int, user_id: int, provider: str = "ollama", model: str | None = None, ollama_base_url: str | None = None):
+def nodes_to_text(nodes: list[MessageNode]) -> str:
+    lines = []
+    for node in nodes:
+        if node.role == "exchange":
+            if node.user_content:
+                lines.append(f"User: {node.user_content}")
+            if node.assistant_content:
+                lines.append(f"Assistant: {node.assistant_content}")
+        elif node.role in ("user", "assistant") and node.content:
+            lines.append(f"{node.role.capitalize()}: {node.content}")
+        elif node.role == "merge" and node.assistant_content:
+            lines.append(f"Synthesized Context: {node.assistant_content}")
+    return "\n".join(lines)
+
+
+def synthesize_branches(
+    text_a: str,
+    text_b: str,
+    node_a_id: int,
+    node_b_id: int,
+    provider: str,
+    model: str,
+    ollama_base_url: str | None = None,
+) -> str:
+    from .providers import provider_reply
+
+    prompt = (
+        "You are synthesizing the key takeaways and context from two conversation branches in a Git-like tree structure into a unified summary.\n"
+        "Analyze the following two branches of conversation and synthesize their key points, agreed conclusions, and combined context into a comprehensive summary.\n"
+        "Format the response cleanly with:\n"
+        "1. Key points from Branch A\n"
+        "2. Key points from Branch B\n"
+        "3. Combined synthesis and consensus\n"
+        "Be concise and informative."
+    )
+    messages = [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": f"=== Branch A (Node #{node_a_id}) ===\n{text_a}\n\n=== Branch B (Node #{node_b_id}) ===\n{text_b}",
+        },
+    ]
+    try:
+        reply = provider_reply(provider, model, messages, ollama_base_url)
+        if isinstance(reply, dict):
+            return reply.get("content", "").strip()
+        return str(reply).strip()
+    except Exception as exc:
+        print(f"[DEBUG] Merge synthesis failed: {exc}")
+        return ""
+
+
+def find_ancestor_path(db, node_id: int, user_id: int | None = None) -> list[MessageNode]:
+    path = []
+    curr = node_id
+    seen = set()
+    while curr is not None:
+        if curr in seen:
+            raise RuntimeError("Message node cycle detected.")
+        seen.add(curr)
+        node = db.get(MessageNode, curr)
+        if node is None:
+            raise ValueError(f"Message node {curr} does not exist.")
+        ensure_node_owner(node, user_id)
+        path.append(node)
+        curr = node.parent_id
+    path.reverse()
+    return path
+
+
+def calculate_branch_diff(db, node_a_id: int, node_b_id: int, user_id: int | None = None) -> dict[str, Any]:
+    path_a = find_ancestor_path(db, node_a_id, user_id)
+    path_b = find_ancestor_path(db, node_b_id, user_id)
+
+    lca_node = None
+    min_len = min(len(path_a), len(path_b))
+    divergence_index = 0
+    for i in range(min_len):
+        if path_a[i].id == path_b[i].id:
+            lca_node = path_a[i]
+            divergence_index = i + 1
+        else:
+            break
+
+    diff_a = path_a[divergence_index:]
+    diff_b = path_b[divergence_index:]
+
+    return {
+        "lca_node": node_to_dict(lca_node) if lca_node else None,
+        "branch_a_nodes": [node_to_dict(n) for n in diff_a],
+        "branch_b_nodes": [node_to_dict(n) for n in diff_b],
+    }
+
+
+def create_merge_node(
+    node_a_id: int,
+    node_b_id: int,
+    user_id: int,
+    provider: str = "ollama",
+    model: str | None = None,
+    ollama_base_url: str | None = None,
+    strategy: str = "synthesize",
+):
     with SessionLocal() as db:
         with db.begin():
             node_a = db.get(MessageNode, node_a_id)
@@ -239,13 +343,32 @@ def create_merge_node(node_a_id: int, node_b_id: int, user_id: int, provider: st
                 raise ValueError(f"Message node {node_b_id} does not exist.")
             ensure_node_owner(node_b, user_id)
 
+            synthesis_summary = ""
+            if strategy == "synthesize" and model:
+                context_a = rebuild_context_nodes(db, node_a_id, user_id)
+                context_b = rebuild_context_nodes(db, node_b_id, user_id)
+                text_a = nodes_to_text(context_a)
+                text_b = nodes_to_text(context_b)
+                if text_a.strip() or text_b.strip():
+                    synthesis_summary = synthesize_branches(
+                        text_a, text_b, node_a_id, node_b_id, provider, model, ollama_base_url
+                    )
+
+            user_content = f"Merged Branch #{node_a_id} and Branch #{node_b_id}."
+            assistant_content = synthesis_summary if synthesis_summary else (
+                "Understood. I now have context from both sessions and will incorporate information from both."
+            )
+            content = synthesis_summary if synthesis_summary else f"Merged from Node #{node_a_id} and Node #{node_b_id}"
+
             merge_node = MessageNode(
                 user_id=user_id,
                 parent_id=None,
                 merge_parent_a_id=node_a_id,
                 merge_parent_b_id=node_b_id,
                 role="merge",
-                content=f"Merged from Node #{node_a_id} and Node #{node_b_id}",
+                content=content,
+                user_content=user_content,
+                assistant_content=assistant_content,
             )
             db.add(merge_node)
             db.flush()

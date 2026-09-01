@@ -66,11 +66,11 @@ class BranchInfo(Base):
 
     node_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("message_nodes.id"),
+        ForeignKey("message_nodes.id", ondelete="CASCADE"),
         primary_key=True,
     )
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

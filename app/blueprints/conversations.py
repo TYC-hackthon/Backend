@@ -4,7 +4,7 @@ from sqlalchemy import delete, select
 from ..auth import AuthError, require_current_user
 from ..database import SessionLocal
 from ..http import response_fail, response_ok
-from ..models import MessageNode
+from ..models import BranchInfo, MessageNode
 from ..services.message_nodes import (
     node_to_dict,
     nodes_payload,
@@ -57,6 +57,7 @@ def clear_nodes():
         with SessionLocal() as db:
             with db.begin():
                 user = require_current_user(db)
+                db.execute(delete(BranchInfo).where(BranchInfo.user_id == user.id))
                 result = db.execute(delete(MessageNode).where(MessageNode.user_id == user.id))
     except AuthError as exc:
         return response_fail(str(exc), exc.status_code)

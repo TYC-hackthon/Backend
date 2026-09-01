@@ -47,14 +47,23 @@ def generate_metadata(
         print(f"[DEBUG] Requesting metadata generation with provider {provider} model {model}")
         response_text = provider_reply(provider, model, messages, base_url)
         print(f"[DEBUG] Provider response: {response_text}")
-        clean_text = response_text.strip()
+        if isinstance(response_text, dict):
+            raw_text = response_text.get("content", "")
+        else:
+            raw_text = str(response_text)
+        clean_text = raw_text.strip()
         if clean_text.startswith("```json"):
             clean_text = clean_text[7:]
-        if clean_text.startswith("```"):
+        elif clean_text.startswith("```"):
             clean_text = clean_text[3:]
         if clean_text.endswith("```"):
             clean_text = clean_text[:-3]
-        return json.loads(clean_text.strip())
+        clean_text = clean_text.strip()
+        start_idx = clean_text.find("{")
+        end_idx = clean_text.rfind("}")
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            clean_text = clean_text[start_idx : end_idx + 1]
+        return json.loads(clean_text)
     except Exception as e:
         print(f"[DEBUG] Metadata generation failed: {e}")
         return {}
